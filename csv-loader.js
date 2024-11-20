@@ -1,73 +1,26 @@
 jQuery(document).ready(function($) {
-    if (typeof csvUrl === 'undefined') {
-        console.error('No CSV URL provided.');
-        return;
-    }
+    // Function to parse CSV and extract word and frequency pairs from the specified column
+    window.parseCSV = function(text, selectedColumn, minFrequency, termsLimit) {
+        let lines = text.split('\n');
+        let headers = lines[0].split(',');
+        let selectedIndex = -1;
 
-    if (typeof minFrequency === 'undefined') {
-        minFrequency = 0; // Default minimum frequency to 0 if not provided
-    }
-
-    if (typeof baseColor === 'undefined') {
-        baseColor = '#ff0000'; // Default to red if no color is provided
-    }
-
-    if (typeof backgroundColor === 'undefined') {
-        backgroundColor = '#f0f0f0'; // Default background color
-    }
-
-    if (typeof rotateRatio === 'undefined') {
-        rotateRatio = 0.5; // Default rotation ratio
-    }
-
-    if (typeof outOfBounds === 'undefined') {
-        outOfBounds = 0; // Default to no out-of-bounds drawing
-    }
-
-    if (typeof linked === 'undefined') {
-        linked = 0; // Default to no linking if undefined
-    }
-
-    if (typeof termsLimit === 'undefined') {
-        termsLimit = 100; // Default to 100 if not provided
-    }
-	
-	if (typeof fontFamily === 'undefined') {
-        fontFamily = '"Trebuchet MS", "Arial Unicode MS", "Droid Fallback Sans", sans-serif'; // Default font if not provided
-    }
-	
-	// Split the baseColor string by commas if it contains multiple colors
-    let colorArray = baseColor.split(',').map(c => c.trim());
-
-    // Helper function to convert hex color to RGB
-    function hexToRGB(hex) {
-        let r = parseInt(hex.slice(1, 3), 16);
-        let g = parseInt(hex.slice(3, 5), 16);
-        let b = parseInt(hex.slice(5, 7), 16);
-        return { r, g, b };
-    }
-
-    // Function to interpolate between two colors (used for fading)
-    function interpolateColor(color1, color2, factor) {
-        let result = {};
-        for (let key in color1) {
-            result[key] = Math.round(color1[key] + factor * (color2[key] - color1[key]));
+        // Identify the selected column or default to the first column
+        if (selectedColumn) {
+            selectedIndex = headers.indexOf(selectedColumn.trim());
         }
-        return `rgb(${result.r}, ${result.g}, ${result.b})`;
-    }
-    
-    // Function to parse CSV file and apply scaling
-    function parseCSV(text) {
-        var lines = text.split('\n');
-        var data = [];
-        var maxFrequency = 0;
+        if (selectedIndex === -1) {
+            selectedIndex = 0; // Default to the first column if no valid selection is made
+        }
 
-        // Limit the number of words processed to 'termsLimit'
-        for (var i = 0; i < lines.length && i < termsLimit; i++) {
-            var row = lines[i].split(',');
-            if (row.length === 2) {
-                var word = row[0];
-                var frequency = parseInt(row[1]);
+        let data = [];
+        let maxFrequency = 0;
+
+        for (let i = 1; i < lines.length && data.length < termsLimit; i++) {
+            let row = lines[i].split(',');
+            if (row.length > selectedIndex) {
+                let [word, frequencyStr] = row[selectedIndex].split(':');
+                let frequency = parseInt(frequencyStr);
                 if (!isNaN(frequency)) {
                     data.push([word, frequency]);
                     if (frequency > maxFrequency) {
@@ -77,127 +30,144 @@ jQuery(document).ready(function($) {
             }
         }
 
-        // Now, normalize the frequencies and filter based on minFrequency
-        var normalizedData = [];
-        for (var i = 0; i < data.length; i++) {
-            var normalizedValue = Math.round((data[i][1] / maxFrequency) * 100);
-            if (normalizedValue >= minFrequency) { // Apply the filter here
+        let normalizedData = [];
+        for (let i = 0; i < data.length; i++) {
+            let normalizedValue = Math.round((data[i][1] / maxFrequency) * 100);
+            if (normalizedValue >= minFrequency) {
                 normalizedData.push([data[i][0], normalizedValue]);
             }
         }
 
         return normalizedData;
-    }
+    };
 
-    // Function to calculate color based on the normalized value
-    function calculateColor(normalizedValue, baseHSL) {
-        let lightness = (normalizedValue / 100) * 50;
-        return `hsl(${baseHSL.h}, ${baseHSL.s}%, ${lightness}%)`;
-    }
+    // Load and render word cloud for each container instance
+    window.loadWordCloud = function(container) {
+        var csvUrl = container.data("csvUrl");
+        var selectedColumn = container.data("selectedColumn");
+        var minFrequency = container.data("minFrequency");
+        var termsLimit = container.data("termsLimit");
+        var linked = container.data("linked");
+        var category = container.data("category");
+        var fontFamily = container.data("fontFamily");
 
-    // Function to generate the search URL for a word
-    function generateLink(word) {
-        let link = `/?s=${encodeURIComponent(word)}`;
-        if (category && category !== '') {
-            link += `&category_name=${encodeURIComponent(category)}`;
-        }
-        return link;
-    }
-	
-	// Function to inject the link into a word element
-    function injectLinkIntoWord(spanElement) {
-        if (linked && spanElement) {
-            const word = $(spanElement).text();
-            const link = generateLink(word);
-            $(spanElement).html(`<a href="${link}" style="color: inherit; text-decoration: none;">${word}</a>`);
-        }
-    }
+        console.log("Attempting to load font for word cloud...");
 
-    // Function to observe when new spans are added and inject links
-    function observeWordCloud() {
-        const targetNode = document.getElementById('wordcloud-container');
-
-        // Create an observer instance linked to the callback function
-        const observer = new MutationObserver(function(mutationsList) {
-            for (let mutation of mutationsList) {
-                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    mutation.addedNodes.forEach(node => {
-                        if (node.nodeName === 'SPAN') {
-                            injectLinkIntoWord(node); // Inject link when a new span is added
-                        }
-                    });
-                }
-            }
-        });
-
-        // Start observing the target node for added child elements
-        observer.observe(targetNode, { childList: true });
-    }
-
-    // Load the specified font before rendering the word cloud
-    function loadFontAndRenderCloud() {
+        // Load the specified font before rendering the word cloud
         if (document.fonts && fontFamily) {
             const fontFace = new FontFace(fontFamily, `local(${fontFamily})`);
             document.fonts.add(fontFace);
 
             fontFace.load().then(() => {
-                renderWordCloud(); // Font loaded, now render the cloud
+                console.log("Font loaded successfully. Rendering word cloud...");
+                renderWordCloud(container, csvUrl, selectedColumn, minFrequency, termsLimit, linked, category);
             }).catch((error) => {
                 console.error('Failed to load font:', error);
-                renderWordCloud(); // Render anyway if the font fails to load
+                renderWordCloud(container, csvUrl, selectedColumn, minFrequency, termsLimit, linked, category);
             });
         } else {
-            renderWordCloud(); // FontFace API not supported, just render the cloud
+            renderWordCloud(container, csvUrl, selectedColumn, minFrequency, termsLimit, linked, category);
         }
-    }
+    };
 
-    // Function to render the word cloud
-    function renderWordCloud() {
+    function renderWordCloud(container, csvUrl, selectedColumn, minFrequency, termsLimit, linked, category) {
         $.ajax({
             url: csvUrl,
             dataType: 'text',
             success: function(data) {
-                var wordArray = parseCSV(data);
+                var wordArray = parseCSV(data, selectedColumn, minFrequency, termsLimit);
 
-                let colorIndex = 0; // Track current color index
+                let colorArray = container.data("baseColor").split(",").map(function(c) { return c.trim(); });
+                let colorIndex = 0;
+                const black50 = { r: 50, g: 50, b: 50 };
 
-                // Define black for fade-out
-                const black50 = { r: 50, g: 50, b: 50 }; // 50% black
+                // Start observing the container before rendering the word cloud
+                observeWordCloud(container[0], linked, category);
 
-                // Generate the word cloud
-                WordCloud(document.getElementById('wordcloud-container'), {
+                WordCloud(container[0], {
                     list: wordArray,
                     gridSize: 8,
                     weightFactor: function(size) {
                         return size;
                     },
                     color: function(word, size) {
-                        // Cycle through colors in colorArray
                         const color = colorArray[colorIndex % colorArray.length];
                         colorIndex++;
-
                         const wordRGB = hexToRGB(color);
-                        // Fade to 50% black for smaller words
-                        const fadeFactor = Math.min(1, size / 50); // Scale between 1 and 0.5
+                        const fadeFactor = Math.min(1, size / 50);
                         return interpolateColor(wordRGB, black50, 1 - fadeFactor);
                     },
-                    rotateRatio: rotateRatio,
-                    backgroundColor: backgroundColor,
-                    fontFamily: fontFamily, // Apply the specified font family
-                    drawOutOfBound: outOfBounds === 1,
-                    classes: 'wordcloud-item',
-                    html: true // Ensure we're rendering HTML
+                    rotateRatio: container.data("rotateRatio"),
+                    backgroundColor: container.data("backgroundColor"),
+                    fontFamily: container.data("fontFamily"),
+                    drawOutOfBound: container.data("outOfBounds") === 1,
+                    classes: "wordcloud-item",
+                    html: true,
+                    done: function() {
+                        console.log("Word cloud rendering done.");
+                    }
                 });
-
-                // Start observing the word cloud container for new spans
-                observeWordCloud();
             },
             error: function() {
-                console.error('Failed to load CSV file.');
+                console.error("Failed to load CSV file.");
             }
         });
     }
 
-    // Load the font and render the word cloud
-    loadFontAndRenderCloud();
+    // Function to generate the search URL for a word
+    window.generateLink = function(word, category) {
+        let link = `/?s=${encodeURIComponent(word)}`;
+        if (category && category !== '') {
+            link += `&category_name=${encodeURIComponent(category)}`;
+        }
+        return link;
+    };
+
+    // Function to inject the link into a word element
+    window.injectLinkIntoWord = function(spanElement, linked, category) {
+        if (linked && spanElement) {
+            const word = $(spanElement).text();
+            const link = generateLink(word, category);
+            $(spanElement).html(`<a href="${link}" style="color: inherit; text-decoration: none;">${word}</a>`);
+        }
+    };
+
+    // Function to observe when new spans are added and inject links
+    window.observeWordCloud = function(container, linked, category) {
+        console.log("Starting to observe word cloud container for links...");
+        const observer = new MutationObserver(function(mutationsList) {
+            for (let mutation of mutationsList) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeName === 'SPAN') {
+                            console.log("New span detected, injecting link...");
+                            injectLinkIntoWord(node, linked, category); // Inject link when a new span is added
+                        }
+                    });
+                }
+            }
+        });
+
+        // Start observing the target container for added child elements
+        observer.observe(container, { childList: true });
+    };
+
+    // Helper functions moved globally
+    window.hexToRGB = function(hex) {
+        let r = parseInt(hex.slice(1, 3), 16);
+        let g = parseInt(hex.slice(3, 5), 16);
+        let b = parseInt(hex.slice(5, 7), 16);
+        return { r, g, b };
+    };
+
+    window.interpolateColor = function(color1, color2, factor) {
+        let result = {};
+        for (let key in color1) {
+            result[key] = Math.round(color1[key] + factor * (color2[key] - color1[key]));
+        }
+        return `rgb(${result.r}, ${result.g}, ${result.b})`;
+    };
+
+    // Trigger a custom event to signal that the csv-loader functions are ready
+    $(document).trigger("csvLoaderReady");
 });
